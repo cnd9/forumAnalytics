@@ -74,7 +74,7 @@ class forum_scraper:
             range_name = peakinfo[n][1]
             mtn_name = peakinfo[n][2]
             response = requests.get(url)
-            soup = BeautifulSoup(response.text, "html.parser")
+            soup = BeautifulSoup(response.text, 'html')
             pagenums = soup.findAll("div",{"class":"pagination"})
             pagenums=pagenums[0].text.split('...')
             print(mtn_name)
@@ -89,7 +89,7 @@ class forum_scraper:
             for m in range((lastnum)):  ## each of the subpages
                 pageurl = url + r'&start=' + str(m*20)
                 response = requests.get(pageurl)
-                soup = BeautifulSoup(response.text, "html.parser") 
+                soup = BeautifulSoup(response.text, 'html') 
                # dateClimb = soup.findAll("div",{"class":"buttonf orangef"})
                 peakTable = soup.findAll("table",{"class":"data_box2 breaklines rowhover"})[0]
                 peakRows = peakTable.findAll("tr")[1::]
