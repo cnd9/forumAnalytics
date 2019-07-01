@@ -24,7 +24,7 @@ import numpy as np
 import pickle
 from bs4 import BeautifulSoup
 import os
-
+from forum_scrape_utils import number_from_string
 import time 
 import datetime   
 from sqlalchemy import create_engine 
@@ -35,14 +35,14 @@ class forum_scraper:
     def __init__(self):
 
         self.colnames_post = ['PostTitle','PostBody','UserName','FirstPostDate','ResponseCount','SubForumName']
-        self.colnames_user = ['Username','JoinDate','LastActiveDate','NumPosts','Num14ers','Num13ers','MaxSkill','ClimbPreference','Accomplishments','Goals','GearList','Interests','Location','CountTripReports']
+        self.colnames_user = ['UserId','Username','Age','MaxSkillLevel','ClimbingPreference','Accomplishments','Goals','MyGearList','Location','Occupation','Num14ers','Num13ers','NumPhotos','NumTripReports','NumClimbTimes','GearForSale','JoinDate','LastActiveDate','NumPosts']
         self.colnames_cond_report = ['PeakName','DateClimb','DatePost','Route','Username','ReportText']
         self.peak_cond_url = r'https://www.14ers.com/php14ers/peakstatus_main.php'
         self.forum_base_url = r'https://www.14ers.com/forum/viewforum.php?f='
-
+        self.n_users = 86101
+        
     def build_conditions_dataframe(self):
         peakinfo = self.get_conditions_links()
-        self.peakinfo = peakinfo
         peakcond_df = self.get_reports_from_links(peakinfo)
         return peakcond_df
 
@@ -78,7 +78,6 @@ class forum_scraper:
             pagenums = soup.findAll("div",{"class":"pagination"})
             pagenums=pagenums[0].text.split('...')
             print(mtn_name)
-            print(pagenums)
             if len(pagenums)>1:
                 lastnum = int(pagenums[-1].strip()[:-1])
             else:
@@ -89,10 +88,13 @@ class forum_scraper:
             for m in range((lastnum)):  ## each of the subpages
                 pageurl = url + r'&start=' + str(m*20)
                 response = requests.get(pageurl)
-                soup = BeautifulSoup(response.text, 'html') 
+                soup = BeautifulSoup(response.text, 'html')
+                self.resp = soup
+ 
                # dateClimb = soup.findAll("div",{"class":"buttonf orangef"})
                 peakTable = soup.findAll("table",{"class":"data_box2 breaklines rowhover"})[0]
                 peakRows = peakTable.findAll("tr")[1::]
+
                 for p in range(len(peakRows)):
                     dateEntry = peakRows[p].findAll("div",{"class":"buttonf orangef"})[0].text
                     dateEntry = pd.to_datetime(dateEntry).strftime('%Y-%m-%d %H:%M:%S')
@@ -103,14 +105,75 @@ class forum_scraper:
                     entryDict = {'PeakName':mtn_name,'PeakRange':range_name,'DateEntry':dateEntry,'User':user,'RouteClimb':routeClimb,'EntryText':entryText}
                     entryList.append(entryDict)
         df = pd.DataFrame(data = entryList)
+        self.dftest = entryList
         return df    
+    
+    def build_user_profile_dataframe(self):
+        form_data = {'username': 'forum_researcher','password': 'ForumResearcher1','redirect': './ucp.php?mode=login','sid': 'e1ba96ab85c15a9b2a7a5a1b7be552e8','redirect': 'index.php','login': 'Login'}
+        login_post_url = r'https://www.14ers.com/forum/ucp.php?mode=login'
+        user_df = pd.DataFrame(columns = self.colnames_user)
+
+        with requests.Session() as sesh:
+            sesh.post(login_post_url, data=form_data)
+            for n in range(3,self.n_users):
+                print(n)
+                response = sesh.get(r'https://www.14ers.com/forum/memberlist.php?mode=viewprofile&u='+str(n))
+                soup = BeautifulSoup(response.text, 'html')
+                self.souptest = soup 
+                ## below get the fields for the user dataframe besides joindate, lastactivedate, and number of posts
+                profile_info = soup.findAll("dl",{'class':'left-box details profile-details'})
+                if len(profile_info) > 0:
+                    profile_fields = profile_info[0].findAll('dt')
+                    profile_fields = [(elem.text.strip(':')).replace(" ", "") for elem in profile_fields]
+                    profile_data = profile_info[0].findAll('dd')
+                    profile_data = [elem.text.strip() for elem in profile_data]
+                    user_field_dict = {elem:'' for elem in self.colnames_user}
+                    for m in range(len(profile_fields)):
+                        if profile_fields[m] in self.colnames_user:
+                            user_field_dict[profile_fields[m]] = profile_data[m]
+                    try:
+                        user_field_dict['Num14ers'] = int(profile_data[profile_fields.index('14erChecklist')])
+                    except:
+                        user_field_dict['Num14ers'] = np.nan
+                    try:
+                        user_field_dict['Num13ers'] = int(profile_data[profile_fields.index('13erChecklist')])
+                    except:
+                        user_field_dict['Num13ers'] = np.nan 
+                    user_field_dict['NumPhotos'] = number_from_string(profile_data[profile_fields.index('MyPhotos')])
+                    user_field_dict['NumTripReports'] = number_from_string(profile_data[profile_fields.index('MyTripReports')])
+                    user_field_dict['NumClimbTimes'] = number_from_string(profile_data[profile_fields.index('MyClimbTimes')])
+                    user_field_dict['GearForSale'] = (profile_data[profile_fields.index('MyClassifieds')]).strip()
+                    user_field_dict['UserId'] = n
+                    
+                    ##below get the remaining fields for the user dataframe
+                    stats_info = soup.findAll("div",{'class':'column2'})
+                    stats_info = stats_info[0].findAll('dl')
+                    stats_fields = stats_info[0].findAll('dt')
+                    stats_fields = [(elem.text.strip(':')).replace(" ", "") for elem in stats_fields]
+                    stats_data = stats_info[0].findAll('dd')
+                    stats_data = [elem.text.strip() for elem in stats_data]
+                    self.sdtest = stats_data[0]
+                    user_field_dict['JoinDate'] = pd.to_datetime(stats_data[0])
+                    try:
+                        user_field_dict['LastActiveDate'] = pd.to_datetime(stats_data[1])
+                    except:
+                        user_field_dict['LastActiveDate'] = pd.NaT
+                    user_field_dict['NumPosts'] = int(stats_data[2].split(' ')[0])
+                    user_df = user_df.append(user_field_dict,ignore_index=True)
+                    
+            return user_df
+                
+                
 
 
 
 if __name__ == "__main__":
     fs = forum_scraper() 
-    cond_df = fs.build_conditions_dataframe()
-    fname = r'conditions_df.pkl'
-    with open(fname, 'wb') as handle:
-        pickle.dump(cond_df, handle)
-    
+   # cond_df = fs.build_conditions_dataframe()
+    user_df = fs.build_user_profile_dataframe()
+    fname_cond = r'conditions_df.pkl'
+    fname_user = r'user_profile_data.pkl'
+  #  with open(fname, 'wb') as handle:
+  #      pickle.dump(cond_df, handle)
+    with open(fname_user, 'wb') as handle:
+        pickle.dump(user_df, handle)
