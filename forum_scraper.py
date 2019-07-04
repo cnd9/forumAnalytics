@@ -163,7 +163,58 @@ class forum_scraper:
                     
             return user_df
                 
-                
+    def build_peakchecklist_dataframe(self):
+        fname_user_full = r'user_profile_data_FULL'
+        user_df = pickle.load(open(fname_user_full,"rb"))
+        users_14erList = user_df[user_df['Num14ers'] > 0]
+        users_13erList = user_df[user_df['Num13ers']>0]
+        dfcols = ['UserId','PeakName','NumClimbs']
+        df_13erList = pd.DataFrame(columns=dfcols)
+        df_14erList = pd.DataFrame(columns=dfcols)
+        with requests.Session() as sesh:
+            sesh.post(self.login_post_url, data=self.form_data)
+            for n in range(len(users_13erList)):
+                uid = users_13erList['UserId'].iloc[n]
+                print(users_13erList['Username'].iloc[n])
+                url_13er_list = r'https://www.14ers.com/php14ers/usrpeaksv.php?usernum='+str(uid)+r'&checklist=13ers&rk=both&nm=both&peakstoshow=climbed&listd=range&showicons=on'
+                response = requests.get(url_13er_list)
+                soup = BeautifulSoup(response.text, 'html')
+                range_tables = soup.findAll('table',{'class':'data_box2 rowhover'})
+                for m in range(len(range_tables)):
+                    trs = range_tables[m].findAll('tr')
+                    if len(trs)>1:
+                        for q in range(1,len(trs)-1):
+                            peakinfo = trs[q].text.strip()
+                            n_climbs = number_from_string(peakinfo)
+                            peak_name = alpha_from_string(peakinfo)
+                            entry = {'UserId':int(uid),'PeakName':peak_name,'NumClimbs':n_climbs}
+                            df_13erList=df_13erList.append(entry,ignore_index=True)
+            self.df13ers = df_13erList
+            fname_13er = r'13erChecklistByUser_df'
+            with open(fname_13er, 'wb') as handle:
+                pickle.dump(df_13erList, handle)    
+            
+            #Now repeat for the 14er Checklists
+            for n in range(len(users_14erList)):
+                uid = users_14erList['UserId'].iloc[n]
+                print(users_14erList['Username'].iloc[n])
+                url_14er_list = r'https://www.14ers.com/php14ers/usrpeaksv.php?usernum='+str(uid)+r'&checklist=14ers&rk=both&nm=both&peakstoshow=climbed&listd=range&showicons=on'
+
+                response = requests.get(url_14er_list)
+                soup = BeautifulSoup(response.text, 'html')
+                range_tables = soup.findAll('table',{'class':'data_box2 rowhover'})
+                for m in range(len(range_tables)):
+                    trs = range_tables[m].findAll('tr')
+                    if len(trs)>1:
+                        for q in range(1,len(trs)-1):
+                            peakinfo = trs[q].text.strip()
+                            n_climbs = number_from_string(peakinfo)
+                            peak_name = alpha_from_string(peakinfo)
+                            entry = {'UserId':int(uid),'PeakName':peak_name,'NumClimbs':n_climbs}
+                            df_14erList=df_14erList.append(entry,ignore_index=True)
+            fname_14er = r'14erChecklistByUser_df'
+            with open(fname_14er, 'wb') as handle:
+                pickle.dump(df_14erList, handle)                   
 
 
 
